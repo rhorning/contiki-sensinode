@@ -65,7 +65,6 @@ PROCESS_THREAD(proc3_process, ev, data)
       leds_toggle(LEDS_RED);
       etimer_reset(&et_proc3);
       process_post (&pong_process, LED_PING_EVENT , (void *)(&proc3_process));
-      printf("%d\n",a);
     }
     else if(ev == LED_PONG_EVENT){
       leds_toggle(LEDS_RED);
