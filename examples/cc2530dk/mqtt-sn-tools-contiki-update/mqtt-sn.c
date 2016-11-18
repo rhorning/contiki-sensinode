@@ -838,7 +838,7 @@ manage_response(/*struct mqtt_sn_connection *mqc, const uip_ipaddr_t *source_add
       else {
         req->state = MQTTSN_REQUEST_FAILED;
       }
-      manage_request(/*req,mqtt_sn_c*/,NULL,0,0);
+      manage_request(/*req,mqtt_sn_c,*/NULL,0,0);
     }
   }
 }

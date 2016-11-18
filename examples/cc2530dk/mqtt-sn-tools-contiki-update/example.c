@@ -37,6 +37,7 @@
 #include "contiki.h"
 #include "contiki-lib.h"
 #include "contiki-net.h"
+#include "stack.h"
 
 #include "lib/random.h"
 #include "sys/ctimer.h"
@@ -75,8 +76,8 @@ static int8_t qos = 1;
 static uint8_t retain = FALSE;
 static char device_id[17];
 static clock_time_t send_interval;
-static mqtt_sn_subscribe_request subreq;
-static mqtt_sn_register_request regreq;
+mqtt_sn_subscribe_request subreq;
+mqtt_sn_register_request regreq;
 //uint8_t debug = FALSE;
 
 static enum mqttsn_connection_status connection_state = MQTTSN_DISCONNECTED;
@@ -187,6 +188,7 @@ PROCESS_THREAD(publish_process, ev, data)
   registration_tries =0;
   while (registration_tries < REQUEST_RETRIES)
   {
+	stack_max_sp_print("register try");
     reg_topic_msg_id = mqtt_sn_register_try(/*rreq,&mqtt_sn_c,*/pub_topic,REPLY_TIMEOUT);
     PROCESS_WAIT_EVENT_UNTIL(mqtt_sn_request_returned(rreq));
     if (mqtt_sn_request_success(rreq)) {
@@ -210,6 +212,7 @@ PROCESS_THREAD(publish_process, ev, data)
       sprintf(buf, "Message %d", message_number);
       message_number++;
       buf_len = strlen(buf);
+      stack_max_sp_print("send publish");
       mqtt_sn_send_publish(/*&mqtt_sn_c,*/ publisher_topic_id,MQTT_SN_TOPIC_TYPE_NORMAL,buf, buf_len,qos,retain);
       etimer_set(&send_timer, send_interval);
     }
@@ -230,6 +233,7 @@ PROCESS_THREAD(ctrl_subscription_process, ev, data)
   memcpy(ctrl_topic,device_id,16);
   printf("requesting subscription\n");
   while(subscription_tries < REQUEST_RETRIES) {
+	stack_max_sp_print("subscribe try");
     ctrl_topic_msg_id = mqtt_sn_subscribe_try(/*sreq,&mqtt_sn_c,*/ctrl_topic,0,REPLY_TIMEOUT);
     PROCESS_WAIT_EVENT_UNTIL(mqtt_sn_request_returned(sreq));
     if (mqtt_sn_request_success(sreq)) {
@@ -265,10 +269,13 @@ PROCESS_THREAD(example_mqttsn_process, ev, data)
   static uip_ipaddr_t broker_addr;
   static uint8_t connection_retries = 0;
   static struct etimer et;
+  uint8_t stack;
 
   PROCESS_BEGIN();
 
-  mqttsn_connack_event = process_alloc_event();
+  stack_max_sp_print("inicio do exemplo");
+
+   mqttsn_connack_event = process_alloc_event();
 
   mqtt_sn_set_debug(1);
   //uip_ip6addr(&broker_addr, 0xaaaa, 0, 0, 0, 0, 0, 0, 1);
@@ -309,6 +316,8 @@ PROCESS_THREAD(example_mqttsn_process, ev, data)
   etimer_set(&periodic_timer, 10*CLOCK_SECOND);
   PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&periodic_timer));
 
+  stack_max_sp_print("connection request");
+
   /*Request a connection and wait for connack*/
   printf("requesting connection \n ");
   connection_timeout_event = process_alloc_event();
@@ -317,6 +326,8 @@ PROCESS_THREAD(example_mqttsn_process, ev, data)
   connection_state = MQTTSN_WAITING_CONNACK;
 
   etimer_set(&et, 3 * CLOCK_SECOND);
+
+  stack_max_sp_print("connack wait");
 
   while(1) {
 	  PROCESS_YIELD();
@@ -336,6 +347,7 @@ PROCESS_THREAD(example_mqttsn_process, ev, data)
 	  } else  if (ev == mqttsn_connack_event) {
 		        //if success
 		        printf("connection acked\n");
+		        stack_max_sp_print("subscribe thread");
 		        ctimer_stop(&connection_timer);
 		        connection_state = MQTTSN_CONNECTED;
 		        printf("starting subscription process\n");
@@ -369,6 +381,7 @@ PROCESS_THREAD(example_mqttsn_process, ev, data)
   ctimer_stop(&connection_timer);
   if (connection_state == MQTTSN_CONNECTED){
 	printf("starting subscription process\n");
+	stack_max_sp_print("subscribe");
     process_start(&ctrl_subscription_process, 0);
     etimer_set(&periodic_timer, 3*CLOCK_SECOND);
     PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&periodic_timer));
