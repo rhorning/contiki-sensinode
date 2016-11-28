@@ -60,6 +60,8 @@
 #define DEFAULT_SEND_INTERVAL		(10 * CLOCK_SECOND)
 #define REPLY_TIMEOUT (3 * CLOCK_SECOND)
 
+extern mqtt_sn_request* requests;
+
 struct mqtt_sn_connection mqtt_sn_c;
 struct uip_udp_conn *g_conn;
 
@@ -71,13 +73,11 @@ static uint16_t publisher_topic_id;
 static publish_packet_t incoming_packet;
 static uint16_t ctrl_topic_msg_id;
 static uint16_t reg_topic_msg_id;
-static uint16_t mqtt_keep_alive=60;
+static uint16_t mqtt_keep_alive=12;
 static int8_t qos = 1;
 static uint8_t retain = FALSE;
 static char device_id[17];
 static clock_time_t send_interval;
-mqtt_sn_subscribe_request subreq;
-mqtt_sn_register_request regreq;
 //uint8_t debug = FALSE;
 
 static enum mqttsn_connection_status connection_state = MQTTSN_DISCONNECTED;
@@ -91,6 +91,7 @@ PROCESS(ctrl_subscription_process, "subscribe to a device control channel");
 
 
 AUTOSTART_PROCESSES(&example_mqttsn_process);
+
 
 /*---------------------------------------------------------------------------*/
 static void
@@ -151,7 +152,7 @@ publish_receiver(/*struct mqtt_sn_connection *mqc,*/ const uip_ipaddr_t *source_
   //see if this message corresponds to ctrl channel subscription request
   if (uip_htons(incoming_packet.topic_id) == ctrl_topic_id) {
     //the new message interval will be read from the first byte of the recieved packet
-    send_interval = (uint8_t)incoming_packet.data[0] * CLOCK_CONF_SECOND;
+    //send_interval = (uint8_t)incoming_packet.data[0] * CLOCK_CONF_SECOND;
     incoming_packet.data[incoming_packet.length-7]=0;
     printf("%s\n",incoming_packet.data);
   } else {
@@ -182,7 +183,6 @@ PROCESS_THREAD(publish_process, ev, data)
   static uint8_t buf_len;
   static uint8_t message_number;
   static char buf[20];
-  static mqtt_sn_register_request *rreq = &regreq;
 
   PROCESS_BEGIN();
   send_interval = DEFAULT_SEND_INTERVAL;
@@ -193,41 +193,46 @@ PROCESS_THREAD(publish_process, ev, data)
   {
 	stack_max_sp_print("register try - 0x");
 	stack_dump("current SP: 0x");
-    reg_topic_msg_id = mqtt_sn_register_try(/*rreq,&mqtt_sn_c,*/pub_topic,REPLY_TIMEOUT);
+    reg_topic_msg_id = mqtt_sn_register_try(pub_topic,REPLY_TIMEOUT);
 	printf("Waiting for register request returned\n");
-    PROCESS_WAIT_EVENT_UNTIL(mqtt_sn_request_returned(rreq));
-    if (mqtt_sn_request_success(rreq)) {
+    PROCESS_WAIT_EVENT_UNTIL(mqtt_sn_request_returned(REGISTER_IDX));
+    if (mqtt_sn_request_success(REGISTER_IDX)) {
       registration_tries = 4;
       printf("registration acked\n");
     }
     else {
       registration_tries++;
-      if (rreq->state == MQTTSN_REQUEST_FAILED) {
-          printf("Regack error: %s\n", mqtt_sn_return_code_string(rreq->return_code));
+      if (requests[REGISTER_IDX].state == MQTTSN_REQUEST_FAILED) {
+          printf("Regack error: %s\n", mqtt_sn_return_code_string(requests[REGISTER_IDX].return_code));
       }
       else
       {
-    	  printf("Regack error (else): %s\n", mqtt_sn_return_code_string(rreq->return_code));
+    	  printf("Regack error (else): %s\n", mqtt_sn_return_code_string(requests[REGISTER_IDX].return_code));
       }
     }
   }
-  if (mqtt_sn_request_success(rreq)){
-    //start topic publishing to topic at regular intervals
-    etimer_set(&send_timer, send_interval);
-    while(1)
-    {
-      PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&send_timer));
-      printf("publishing \n ");
-      sprintf(buf, "Message %d", message_number);
-      message_number++;
-      buf_len = strlen(buf);
-      stack_max_sp_print("send publish - 0x");
-      stack_dump("current SP: 0x");
-      mqtt_sn_send_publish(/*&mqtt_sn_c,*/ publisher_topic_id,MQTT_SN_TOPIC_TYPE_NORMAL,buf, buf_len,qos,retain);
-      etimer_set(&send_timer, send_interval);
-    }
-  } else {
-    printf("unable to register topic\n");
+  if (mqtt_sn_request_success(REGISTER_IDX))
+  {
+	  //start topic publishing to topic at regular intervals
+	  etimer_set(&send_timer, send_interval);
+	  while(1) {
+		  PROCESS_WAIT_EVENT();
+
+		  if(ev == PROCESS_EVENT_TIMER) {
+			  printf("publishing \n ");
+			  sprintf(buf, "Message %d", message_number);
+			  message_number++;
+			  buf_len = strlen(buf);
+			  stack_max_sp_print("send publish - 0x");
+			  stack_dump("current SP: 0x");
+			  mqtt_sn_send_publish(publisher_topic_id,MQTT_SN_TOPIC_TYPE_NORMAL,buf, buf_len,qos,retain);
+			  etimer_set(&send_timer, send_interval);
+		  }
+	  }
+  }
+  else
+  {
+	  printf("unable to register topic\n");
   }
   PROCESS_END();
 }
@@ -237,24 +242,25 @@ PROCESS_THREAD(publish_process, ev, data)
 PROCESS_THREAD(ctrl_subscription_process, ev, data)
 {
   static uint8_t subscription_tries;
-  static mqtt_sn_subscribe_request *sreq = &subreq;
+
   PROCESS_BEGIN();
+
   subscription_tries = 0;
   memcpy(ctrl_topic,device_id,16);
   printf("requesting subscription\n");
   while(subscription_tries < REQUEST_RETRIES) {
 	stack_max_sp_print("subslcribe try - 0x");
 	stack_dump("current SP: 0x");
-    ctrl_topic_msg_id = mqtt_sn_subscribe_try(/*sreq,&mqtt_sn_c,*/ctrl_topic,0,REPLY_TIMEOUT);
-    PROCESS_WAIT_EVENT_UNTIL(mqtt_sn_request_returned(sreq));
-    if (mqtt_sn_request_success(sreq)) {
+    ctrl_topic_msg_id = mqtt_sn_subscribe_try(ctrl_topic,0,REPLY_TIMEOUT);
+    PROCESS_WAIT_EVENT_UNTIL(mqtt_sn_request_returned(SUBSCRIBE_IDX));
+    if (mqtt_sn_request_success(SUBSCRIBE_IDX)) {
       subscription_tries = 4;
       printf("subscription acked\n");
     }
     else {
       subscription_tries++;
-      if (sreq->state == MQTTSN_REQUEST_FAILED) {
-          printf("Suback error: %s\n", mqtt_sn_return_code_string(sreq->return_code));
+      if (requests[SUBSCRIBE_IDX].state == MQTTSN_REQUEST_FAILED) {
+          printf("Suback error: %s\n", mqtt_sn_return_code_string(requests[SUBSCRIBE_IDX].return_code));
       }
     }
   }
@@ -280,8 +286,9 @@ PROCESS_THREAD(example_mqttsn_process, ev, data)
   static uip_ipaddr_t broker_addr;
   static uint8_t connection_retries = 0;
   static struct etimer et;
-  uint8_t stack;
-  uint8_t loop=1;
+  static uint8_t stack;
+  static uint8_t loop=1;
+  static uint8_t phases=0;
 
   PROCESS_BEGIN();
 
@@ -310,7 +317,8 @@ PROCESS_THREAD(example_mqttsn_process, ev, data)
   mqtt_sn_c.keep_alive=0;
   mqtt_sn_c.next_message_id = 1;
   mqtt_sn_c.connection_retries = 0;
-  LIST_STRUCT_INIT(&mqtt_sn_c,requests);
+  //LIST_STRUCT_INIT(&mqtt_sn_c,requests);
+  init_request();
   mqtt_sn_request_event = process_alloc_event();
   start_mqttsnproccess();
   (&mqtt_sn_c)->mc = &mqtt_sn_call;
@@ -366,18 +374,11 @@ PROCESS_THREAD(example_mqttsn_process, ev, data)
 		  loop = 0;
 	  }
   }
-
   ctimer_stop(&connection_timer);
-  if (connection_state == MQTTSN_CONNECTED){
-	  printf("starting subscription process\n");
-	  stack_max_sp_print("subscribe - 0x");
-	  stack_dump("current SP: 0x");
-	  process_start(&ctrl_subscription_process, 0);
-	  //etimer_set(&periodic_timer, 3*CLOCK_SECOND);
-	  //PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&periodic_timer));
-	  printf("starting publish process\n");
-	  process_start(&publish_process, 0);
-	  //monitor connection
+
+  etimer_set(&et, 3 * CLOCK_SECOND);
+  if (connection_state == MQTTSN_CONNECTED)
+  {
 	  while(1)
 	  {
 		  PROCESS_WAIT_EVENT();
@@ -387,14 +388,32 @@ PROCESS_THREAD(example_mqttsn_process, ev, data)
 			  printf("packet arrival v2...\n");
 			  mqtt_sn_receiver();
 		  }
+		  else if (ev == PROCESS_EVENT_TIMER)
+		  {
+			  if(phases==0)
+			  {
+				  printf("starting subscription process\n");
+				  stack_max_sp_print("subscribe - 0x");
+				  stack_dump("current SP: 0x");
+				  process_start(&ctrl_subscription_process, 0);
+				  etimer_set(&et, 3 * CLOCK_SECOND);
+			  }
+			  else if(phases==1)
+			  {
+				  printf("starting publish process\n");
+				  stack_max_sp_print("publish - 0x");
+				  stack_dump("current SP: 0x");
+				  process_start(&publish_process, 0);
+				  etimer_set(&et, 3 * CLOCK_SECOND);
+			  }
+			  phases++;
+		  }
 	  }
-  } else {
+  }
+  else
+  {
 	  printf("unable to connect\n");
   }
-
-
-
-
   PROCESS_END();
 }
 /*---------------------------------------------------------------------------*/

@@ -61,9 +61,10 @@
 #define MAX_PAYLOAD_LEN 256
 static char buf[MAX_PAYLOAD_LEN];
 static uint16_t datalen;
+
 extern struct mqtt_sn_connection mqtt_sn_c;
-extern mqtt_sn_subscribe_request subreq;
-extern mqtt_sn_register_request regreq;
+
+
 #define UIP_IP_BUF   ((struct uip_ip_hdr *)&uip_buf[UIP_LLH_LEN])
 #define UIP_UDP_BUF  ((struct uip_udp_hdr *)&uip_buf[uip_l2_l3_hdr_len])
 
@@ -86,11 +87,21 @@ static process_event_t disconnect_event;
 static process_event_t receive_timeout_event;
 static process_event_t send_timeout_event;
 
+#define REQUEST_NUMBER (3)
+
+mqtt_sn_request requests[REQUEST_NUMBER];
+
+
 PROCESS(mqtt_sn_process, "MQTT_SN process");
 void manage_response(/*struct mqtt_sn_connection *mqc, const uip_ipaddr_t *source_addr,
                  const uint8_t *data, uint16_t datalen*/);
 static int manage_request(/*struct mqtt_sn_request *req, struct mqtt_sn_connection *mqc,*/
-               const char* topic_name, uint8_t qos,clock_time_t time_out);
+               int8_t req_idx, const char* topic_name, uint8_t qos,clock_time_t time_out);
+
+static int manage_subscribe_request(const char* topic_name, uint8_t qos,clock_time_t time_out);
+
+static int manage_register_request(const char* topic_name, uint8_t qos,clock_time_t time_out);
+
 static void request_timer_callback(void *req);
 
 #if 1
@@ -791,7 +802,7 @@ const char* mqtt_sn_type_string(uint8_t type)
         case MQTT_SN_TYPE_CONNECT:       return "CONNECT";
         case MQTT_SN_TYPE_CONNACK:       return "CONNACK";
         case MQTT_SN_TYPE_WILLTOPICREQ:  return "WILLTOPICREQ";
-        case MQTT_SN_TYPE_WILLTOPIC:     return "WILLTOPIC";
+        case MQTT_SN_TYPE_WILLTOPIC:     return process_post(PROCESS_BROADCAST,mqtt_sn_request_event,SUBSCRIBE_IDX);"WILLTOPIC";
         case MQTT_SN_TYPE_WILLMSGREQ:    return "WILLMSGREQ";
         case MQTT_SN_TYPE_WILLMSG:       return "WILLMSG";
         case MQTT_SN_TYPE_REGISTER:      return "REGISTER";
@@ -844,14 +855,14 @@ void mqtt_sn_cleanup()
 }
 #endif
 #if 1
-int mqtt_sn_request_returned(struct mqtt_sn_request *req) {
-  printf("mqtt_sn_request_returned: %d\n",req->state);
-  if (req->state == MQTTSN_REQUEST_COMPLETE || req->state == MQTTSN_REQUEST_FAILED) { return 1;}
+int mqtt_sn_request_returned(int8_t req_idx) {
+  printf("mqtt_sn_request_returned: %d\n",requests[req_idx].state);
+  if (requests[req_idx].state == MQTTSN_REQUEST_COMPLETE || requests[req_idx].state == MQTTSN_REQUEST_FAILED) { return 1;}
   else {return 0;}
 }
 
-int mqtt_sn_request_success(struct mqtt_sn_request *req) {
-  if (req->state == MQTTSN_REQUEST_COMPLETE) {return 1;}
+int mqtt_sn_request_success(int8_t req_idx) {
+  if (requests[req_idx].state == MQTTSN_REQUEST_COMPLETE) {return 1;}
   else {return 0;}
 }
 
@@ -860,38 +871,39 @@ manage_response(/*struct mqtt_sn_connection *mqc, const uip_ipaddr_t *source_add
                  const uint8_t *data, uint16_t datalen*/)
 {
   uint8_t msg_type;
-  uint16_t msg_id = 0;
-  uint8_t return_code = 0;
-  uint16_t topic_id = 0;
-  struct mqtt_sn_request *req;
   stack_max_sp_print("manage response - 0x");
   stack_dump("current SP: 0x");
   msg_type = buf[1];
   if (msg_type == MQTT_SN_TYPE_REGACK) {
     regack_packet_t incoming_regack;
     memcpy(&incoming_regack, buf, datalen);
-    msg_id = incoming_regack.message_id;
-    return_code = incoming_regack.return_code;
-    topic_id = uip_htons(incoming_regack.topic_id);
+    if(requests[REGISTER_IDX].msg_id == incoming_regack.message_id) {
+    	requests[REGISTER_IDX].topic_id = uip_htons(incoming_regack.topic_id);
+    	requests[REGISTER_IDX].return_code = incoming_regack.return_code;
+    	if (incoming_regack.return_code == 0){
+    		requests[REGISTER_IDX].state = MQTTSN_REQUEST_COMPLETE;
+    	}
+    	else {
+    		requests[REGISTER_IDX].state = MQTTSN_REQUEST_FAILED;
+    	}
+    	process_post(PROCESS_BROADCAST,mqtt_sn_request_event,REGISTER_IDX);
+    }
+
   }
   else if ( msg_type == MQTT_SN_TYPE_SUBACK) {
     suback_packet_t incoming_suback;
     memcpy(&incoming_suback, buf, datalen);
-    msg_id = incoming_suback.message_id;
-    return_code = incoming_suback.return_code;
-    topic_id = uip_htons(incoming_suback.topic_id);
-  }
-  for(req = list_head(mqtt_sn_c.requests); req != NULL; req = req->next) {
-    if(req->msg_id == msg_id) {
-      req->topic_id = topic_id;
-      req->return_code = return_code;
-      if (return_code == 0){
-        req->state = MQTTSN_REQUEST_COMPLETE;
-      }
-      else {
-        req->state = MQTTSN_REQUEST_FAILED;
-      }
-      manage_request(/*req,mqtt_sn_c,*/NULL,0,0);
+    if(requests[SUBSCRIBE_IDX].msg_id == incoming_suback.message_id) {
+    	requests[SUBSCRIBE_IDX].topic_id = uip_htons(incoming_suback.topic_id);
+    	requests[SUBSCRIBE_IDX].return_code = incoming_suback.return_code;
+    	if (incoming_suback.return_code == 0){
+    		requests[SUBSCRIBE_IDX].state = MQTTSN_REQUEST_COMPLETE;
+    	}
+    	else
+    	{
+    		requests[SUBSCRIBE_IDX].state = MQTTSN_REQUEST_FAILED;
+    	}
+    	process_post(PROCESS_BROADCAST,mqtt_sn_request_event,SUBSCRIBE_IDX);
     }
   }
 }
@@ -899,52 +911,95 @@ manage_response(/*struct mqtt_sn_connection *mqc, const uip_ipaddr_t *source_add
 static void request_timer_callback(void *req)
 {
   //struct mqtt_sn_request *req2 = (struct mqtt_sn_request *)req;
-  manage_request(NULL,0,0);
+  //manage_request(NULL,0,0);
+}
+
+void init_request()
+{
+	uint8_t i=0;
+	for(i=0;i<REQUEST_NUMBER;i++)
+	{
+		requests[i].used = FALSE;
+	}
+}
+
+
+int8_t get_request()
+{
+	uint8_t i=0;
+	for(i=0;i<REQUEST_NUMBER;i++)
+	{
+		if(requests[i].used == FALSE)
+		{
+			requests[i].used = TRUE;
+			return i;
+		}
+	}
+	return -1;
 }
 
 static inline int
 manage_request(/*struct mqtt_sn_request *req, struct mqtt_sn_connection *mqc,*/
-               const char* topic_name, uint8_t qos,clock_time_t time_out)
+               int8_t req_idx, const char* topic_name, uint8_t qos,clock_time_t time_out)
 {
   //PT_BEGIN(&(subreq.pt));
   stack_max_sp_print("manage request - 0x");
   stack_dump("current SP: 0x");
-  list_add(mqtt_sn_c.requests,&subreq);
-  ctimer_set(&(subreq.t), time_out, request_timer_callback, &subreq);
-  subreq.state = MQTTSN_REQUEST_WAITING_ACK;
-  if (subreq.request_type == MQTTSN_REGISTER_REQUEST) {
-    subreq.msg_id = mqtt_sn_send_register(/*mqtt_sn_c, */topic_name);
+
+  //ctimer_set(&(subreq.t), time_out, request_timer_callback, &subreq);
+  requests[req_idx].state = MQTTSN_REQUEST_WAITING_ACK;
+  if (requests[req_idx].request_type == MQTTSN_REGISTER_REQUEST) {
+	  requests[req_idx].msg_id = mqtt_sn_send_register(/*mqtt_sn_c, */topic_name);
   }
-  if (subreq.request_type == MQTTSN_SUBSCRIBE_REQUEST) {
-    subreq.msg_id = mqtt_sn_send_subscribe(/*mqtt_sn_c,*/ topic_name, qos);
+  if (requests[req_idx].request_type == MQTTSN_SUBSCRIBE_REQUEST) {
+	  requests[req_idx].msg_id = mqtt_sn_send_subscribe(/*mqtt_sn_c,*/ topic_name, qos);
   }
-  //PT_YIELD(&(subreq.pt)); /* Wait until timer expired or response received */
-  ctimer_stop(&(subreq.t));
-  process_post(PROCESS_BROADCAST,mqtt_sn_request_event,&subreq);
-  list_remove(mqtt_sn_c.requests,&subreq);
-  //PT_END(&(subreq.pt));
+  return 1;
+}
+
+static inline int
+manage_register_request(/*struct mqtt_sn_request *req, struct mqtt_sn_connection *mqc,*/
+               /*int8_t req_idx,*/ const char* topic_name, uint8_t qos,clock_time_t time_out)
+{
+  stack_max_sp_print("manage register request - 0x");
+  stack_dump("current SP: 0x");
+  requests[REGISTER_IDX].state = MQTTSN_REQUEST_WAITING_ACK;
+  if (requests[REGISTER_IDX].request_type == MQTTSN_REGISTER_REQUEST) {
+	  requests[REGISTER_IDX].msg_id = mqtt_sn_send_register(/*mqtt_sn_c, */topic_name);
+  }
+  return 1;
+}
+
+static inline int
+manage_subscribe_request(const char* topic_name, uint8_t qos,clock_time_t time_out)
+{
+  stack_max_sp_print("manage subscribe request - 0x");
+  stack_dump("current SP: 0x");
+
+  //ctimer_set(&(subreq.t), time_out, request_timer_callback, &subreq);
+  requests[SUBSCRIBE_IDX].state = MQTTSN_REQUEST_WAITING_ACK;
+  if (requests[SUBSCRIBE_IDX].request_type == MQTTSN_SUBSCRIBE_REQUEST) {
+	  requests[SUBSCRIBE_IDX].msg_id = mqtt_sn_send_subscribe(topic_name, qos);
+  }
   return 1;
 }
 
 uint16_t mqtt_sn_register_try(const char* topic_name,clock_time_t time_out)
 {
-  stack_max_sp_print("mqtt_sn_register_try - 0x");
-  stack_dump("current SP: 0x");
-
-  subreq.request_type = MQTTSN_REGISTER_REQUEST;
-  manage_request(/*mqc,*/topic_name,0,time_out);
-  return subreq.msg_id;
+	stack_max_sp_print("mqtt_sn_register_try - 0x");
+	stack_dump("current SP: 0x");
+	requests[REGISTER_IDX].request_type = MQTTSN_REGISTER_REQUEST;
+	manage_register_request(topic_name,0,time_out);
+	return requests[REGISTER_IDX].msg_id;
 }
 
-uint16_t mqtt_sn_subscribe_try(/*mqtt_sn_subscribe_request *req, struct mqtt_sn_connection *mqc,*/
-                               const char* topic_name, uint8_t qos, clock_time_t time_out) {
+uint16_t mqtt_sn_subscribe_try(const char* topic_name, uint8_t qos, clock_time_t time_out) {
 
-  stack_max_sp_print("mqtt_sn_subscribe_try - 0x");
-  stack_dump("current SP: 0x");
-
-  subreq.request_type = MQTTSN_SUBSCRIBE_REQUEST;
-  manage_request(/*mqc,*/topic_name,qos,time_out);
-  return subreq.msg_id;
+	stack_max_sp_print("mqtt_sn_subscribe_try - 0x");
+	stack_dump("current SP: 0x");
+	requests[SUBSCRIBE_IDX].request_type = MQTTSN_SUBSCRIBE_REQUEST;
+	manage_subscribe_request(topic_name,qos,time_out);
+	return requests[SUBSCRIBE_IDX].msg_id;
 }
 
 void start_mqttsnproccess()
