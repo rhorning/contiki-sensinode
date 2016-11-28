@@ -66,12 +66,12 @@ struct uip_udp_conn *g_conn;
 static char mqtt_client_id[]="sensor";
 static char ctrl_topic[] = "0000000000000000/ctrl";//of form "0011223344556677/ctrl" it is null terminated, and is 21 charactes
 static char pub_topic[] = "0000000000000000/msg";
-static uint16_t ctrl_topic_id;
+static uint16_t ctrl_topic_id=0xaa;
 static uint16_t publisher_topic_id;
 static publish_packet_t incoming_packet;
 static uint16_t ctrl_topic_msg_id;
 static uint16_t reg_topic_msg_id;
-static uint16_t mqtt_keep_alive=21;
+static uint16_t mqtt_keep_alive=60;
 static int8_t qos = 1;
 static uint8_t retain = FALSE;
 static char device_id[17];
@@ -136,6 +136,7 @@ suback_receiver(/*struct mqtt_sn_connection *mqc,*/ const uip_ipaddr_t *source_a
   if (incoming_suback.message_id == ctrl_topic_msg_id) {
     if (incoming_suback.return_code == ACCEPTED) {
       ctrl_topic_id = uip_htons(incoming_suback.topic_id);
+      printf("Topic ID: %d\n",ctrl_topic_id);
     } else {
       printf("Suback error: %s\n", mqtt_sn_return_code_string(incoming_suback.return_code));
     }
@@ -146,13 +147,15 @@ static void
 publish_receiver(/*struct mqtt_sn_connection *mqc,*/ const uip_ipaddr_t *source_addr, const uint8_t *data, uint16_t datalen)
 {
   memcpy(&incoming_packet, data, datalen);
-  printf("Published message received\n");
+  printf("Published message received -> ");
   //see if this message corresponds to ctrl channel subscription request
   if (uip_htons(incoming_packet.topic_id) == ctrl_topic_id) {
     //the new message interval will be read from the first byte of the recieved packet
     send_interval = (uint8_t)incoming_packet.data[0] * CLOCK_CONF_SECOND;
+    incoming_packet.data[incoming_packet.length-7]=0;
+    printf("%s\n",incoming_packet.data);
   } else {
-    printf("unknown publication received\n");
+    printf("unknown publication received - received topic id=%d, expected topic id=%d\n",uip_htons(incoming_packet.topic_id),ctrl_topic_id);
   }
 
 }
@@ -188,8 +191,10 @@ PROCESS_THREAD(publish_process, ev, data)
   registration_tries =0;
   while (registration_tries < REQUEST_RETRIES)
   {
-	stack_max_sp_print("register try");
+	stack_max_sp_print("register try - 0x");
+	stack_dump("current SP: 0x");
     reg_topic_msg_id = mqtt_sn_register_try(/*rreq,&mqtt_sn_c,*/pub_topic,REPLY_TIMEOUT);
+	printf("Waiting for register request returned\n");
     PROCESS_WAIT_EVENT_UNTIL(mqtt_sn_request_returned(rreq));
     if (mqtt_sn_request_success(rreq)) {
       registration_tries = 4;
@@ -199,6 +204,10 @@ PROCESS_THREAD(publish_process, ev, data)
       registration_tries++;
       if (rreq->state == MQTTSN_REQUEST_FAILED) {
           printf("Regack error: %s\n", mqtt_sn_return_code_string(rreq->return_code));
+      }
+      else
+      {
+    	  printf("Regack error (else): %s\n", mqtt_sn_return_code_string(rreq->return_code));
       }
     }
   }
@@ -212,7 +221,8 @@ PROCESS_THREAD(publish_process, ev, data)
       sprintf(buf, "Message %d", message_number);
       message_number++;
       buf_len = strlen(buf);
-      stack_max_sp_print("send publish");
+      stack_max_sp_print("send publish - 0x");
+      stack_dump("current SP: 0x");
       mqtt_sn_send_publish(/*&mqtt_sn_c,*/ publisher_topic_id,MQTT_SN_TOPIC_TYPE_NORMAL,buf, buf_len,qos,retain);
       etimer_set(&send_timer, send_interval);
     }
@@ -233,7 +243,8 @@ PROCESS_THREAD(ctrl_subscription_process, ev, data)
   memcpy(ctrl_topic,device_id,16);
   printf("requesting subscription\n");
   while(subscription_tries < REQUEST_RETRIES) {
-	stack_max_sp_print("subscribe try");
+	stack_max_sp_print("subslcribe try - 0x");
+	stack_dump("current SP: 0x");
     ctrl_topic_msg_id = mqtt_sn_subscribe_try(/*sreq,&mqtt_sn_c,*/ctrl_topic,0,REPLY_TIMEOUT);
     PROCESS_WAIT_EVENT_UNTIL(mqtt_sn_request_returned(sreq));
     if (mqtt_sn_request_success(sreq)) {
@@ -270,10 +281,12 @@ PROCESS_THREAD(example_mqttsn_process, ev, data)
   static uint8_t connection_retries = 0;
   static struct etimer et;
   uint8_t stack;
+  uint8_t loop=1;
 
   PROCESS_BEGIN();
 
-  stack_max_sp_print("inicio do exemplo");
+  stack_max_sp_print("inicio do exemplo - 0x");
+  stack_dump("current SP: 0x");
 
    mqttsn_connack_event = process_alloc_event();
 
@@ -282,7 +295,7 @@ PROCESS_THREAD(example_mqttsn_process, ev, data)
   //uip_ip6addr(&broker_addr, 0x2001, 0x0db8, 1, 0xffff, 0, 0, 0xc0a8, 0xd480);//192.168.212.128 with tayga
   //uip_ip6addr(&broker_addr, 0xaaaa, 0, 2, 0xeeee, 0, 0, 0xc0a8, 0xd480);//192.168.212.128 with tayga
   //uip_ip6addr(&broker_addr, 0xaaaa, 0, 2, 0xeeee, 0, 0, 0xac10, 0xdc01);//172.16.220.1 with tayga
-  uip_ip6addr(&broker_addr, 0xaaaa, 0, 0, 0, 0, 0, 0, 1);//172.16.220.128 with tayga
+  uip_ip6addr(&broker_addr, 0xbbbb, 0, 0, 0, 0x7940, 0x7468, 0xb214, 0x82a1);//172.16.220.128 with tayga
   //mqtt_sn_create_socket(&mqtt_sn_c,UDP_PORT, &broker_addr, UDP_PORT);
 
   //simple_udp_register(&(mqc->sock), local_port, remote_addr, remote_port, mqtt_sn_receiver);
@@ -316,7 +329,8 @@ PROCESS_THREAD(example_mqttsn_process, ev, data)
   etimer_set(&periodic_timer, 10*CLOCK_SECOND);
   PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&periodic_timer));
 
-  stack_max_sp_print("connection request");
+  stack_max_sp_print("connection request - 0x");
+  stack_dump("current SP: 0x");
 
   /*Request a connection and wait for connack*/
   printf("requesting connection \n ");
@@ -327,73 +341,55 @@ PROCESS_THREAD(example_mqttsn_process, ev, data)
 
   etimer_set(&et, 3 * CLOCK_SECOND);
 
-  stack_max_sp_print("connack wait");
-
-  while(1) {
-	  PROCESS_YIELD();
-	  if(etimer_expired(&et)) {
+  while(loop) {
+	  stack_max_sp_print("connack wait - 0x");
+	  stack_dump("current SP: 0x");
+	  PROCESS_WAIT_EVENT();
+	  if(ev == PROCESS_EVENT_TIMER) {
 		  connection_state = MQTTSN_CONNECTION_FAILED;
 		  connection_retries++;
 		  printf("connection timeout\n");
-		  if (connection_retries < 10) {
-			  mqtt_sn_send_connect(/*&mqtt_sn_c,*/mqtt_client_id,mqtt_keep_alive);
-			  connection_state = MQTTSN_WAITING_CONNACK;
-		  }
+		  mqtt_sn_send_connect(/*&mqtt_sn_c,*/mqtt_client_id,mqtt_keep_alive);
+		  connection_state = MQTTSN_WAITING_CONNACK;
 		  etimer_restart(&et);
 	  } else if(ev == tcpip_event) {
 		  //tcpip_handler();
-		 printf("packet arrival...\n");
-		 mqtt_sn_receiver();
+		  printf("packet arrival...\n");
+		  mqtt_sn_receiver();
 	  } else  if (ev == mqttsn_connack_event) {
-		        //if success
-		        printf("connection acked\n");
-		        stack_max_sp_print("subscribe thread");
-		        ctimer_stop(&connection_timer);
-		        connection_state = MQTTSN_CONNECTED;
-		        printf("starting subscription process\n");
-		        process_start(&ctrl_subscription_process, 0);
-
+		  //if success
+		  printf("connection acked\n");
+		  stack_max_sp_print("subscribe thread - 0x");
+		  stack_dump("current SP: 0x");
+		  ctimer_stop(&connection_timer);
+		  connection_state = MQTTSN_CONNECTED;
+		  loop = 0;
 	  }
   }
 
-
-//  while (connection_retries < 4)
-//  {
-//    PROCESS_WAIT_EVENT();
-//    if (ev == mqttsn_connack_event) {
-//      //if success
-//      printf("connection acked\n");
-//      ctimer_stop(&connection_timer);
-//      connection_state = MQTTSN_CONNECTED;
-//      connection_retries = 4;//using break here may mess up switch statement of process
-//    }
-//    if (ev == connection_timeout_event) {
-//      connection_state = MQTTSN_CONNECTION_FAILED;
-//      connection_retries++;
-//      printf("connection timeout\n");
-//      ctimer_restart(&connection_timer);
-//      if (connection_retries < 4) {
-//        mqtt_sn_send_connect(&mqtt_sn_c,mqtt_client_id,mqtt_keep_alive);
-//        connection_state = MQTTSN_WAITING_CONNACK;
-//      }
-//    }
-//  }
   ctimer_stop(&connection_timer);
   if (connection_state == MQTTSN_CONNECTED){
-	printf("starting subscription process\n");
-	stack_max_sp_print("subscribe");
-    process_start(&ctrl_subscription_process, 0);
-    etimer_set(&periodic_timer, 3*CLOCK_SECOND);
-    PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&periodic_timer));
-    printf("starting publish process\n");
-    process_start(&publish_process, 0);
-    //monitor connection
-    while(1)
-    {
-      PROCESS_WAIT_EVENT();
-    }
+	  printf("starting subscription process\n");
+	  stack_max_sp_print("subscribe - 0x");
+	  stack_dump("current SP: 0x");
+	  process_start(&ctrl_subscription_process, 0);
+	  //etimer_set(&periodic_timer, 3*CLOCK_SECOND);
+	  //PROCESS_WAIT_EVENT_UNTIL(etimer_expired(&periodic_timer));
+	  printf("starting publish process\n");
+	  process_start(&publish_process, 0);
+	  //monitor connection
+	  while(1)
+	  {
+		  PROCESS_WAIT_EVENT();
+		  if(ev == tcpip_event)
+		  {
+			  //tcpip_handler();
+			  printf("packet arrival v2...\n");
+			  mqtt_sn_receiver();
+		  }
+	  }
   } else {
-    printf("unable to connect\n");
+	  printf("unable to connect\n");
   }
 
 

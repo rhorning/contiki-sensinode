@@ -32,6 +32,7 @@
 #include "dev/leds.h"
 #include "dev/button-sensor.h"
 #include "debug.h"
+#include "stack.h"
 #define DEBUG DEBUG_PRINT
 #include "net/uip-debug.h"
 
@@ -71,7 +72,7 @@ extern mqtt_sn_register_request regreq;
 #define AI_DEFAULT (AI_ADDRCONFIG|AI_V4MAPPED)
 #endif
 
-static uint8_t debug = FALSE;
+static uint8_t debug = TRUE;
 
 topic_map_t *topic_map = NULL;
 
@@ -109,9 +110,12 @@ mqtt_sn_receiver(/*struct simple_udp_connection *sock, const uip_ipaddr_t *sende
          const uip_ipaddr_t *receiver_addr, uint16_t receiver_port, const uint8_t *data, uint16_t datalen*/)
 {
   uint8_t msg_type;
+  uint8_t i=0;
 
   struct mqtt_sn_connection *mqc = &mqtt_sn_c;
-  printf("mqtt_sn_receiver\n");
+
+  stack_max_sp_print("mqtt_sn_receiver - 0x");
+  stack_dump("current SP: 0x");
   if (mqc->keep_alive > 0 && mqc->stat == MQTTSN_CONNECTED){
     ctimer_restart((&(mqc->receive_timer)));
     printf("receive timer reset\n");
@@ -135,6 +139,18 @@ mqtt_sn_receiver(/*struct simple_udp_connection *sock, const uip_ipaddr_t *sende
   if (datalen >= 2)
   {
     msg_type = buf[1];
+
+    PRINTF("%u bytes from [", datalen);
+    PRINT6ADDR(&UIP_IP_BUF->srcipaddr);
+    PRINTF("]\n");
+
+    for(i = 0;i<datalen;i++)
+    {
+    	PRINTF("0x%x ", buf[i]);
+    }
+
+    PRINTF("\n");
+
     switch(msg_type) {
 //        case MQTT_SN_TYPE_ADVERTISE:
 //        case MQTT_SN_TYPE_SEARCHGW:
@@ -264,11 +280,15 @@ PROCESS_THREAD(mqtt_sn_process, ev, data)
   receive_timeout_event = process_alloc_event();
   send_timeout_event = process_alloc_event();
 
-  printf("mqtt_sn_process\n");
+
+
+  stack_max_sp_print("mqtt_sn_process - 0x");
+  stack_dump("current SP: 0x");
 
   while(1) {
     PROCESS_WAIT_EVENT();
-    printf("mqtt_sn_process: event loop\n");
+    stack_max_sp_print("mqtt_sn_process: event loop - 0x");
+    stack_dump("current SP: 0x");
     mqc = (struct mqtt_sn_connection *)data;
     if(ev == connack_event) {
       //if connection was successful, set and or start the ctimers.
@@ -290,7 +310,11 @@ PROCESS_THREAD(mqtt_sn_process, ev, data)
     }
     else if (ev == receive_timeout_event){
       //if last receive has expired we need to stop and disconnect
-      printf("receive timeout event");
+
+
+      stack_max_sp_print("receive timeout event - 0x");
+      stack_dump("current SP: 0x");
+
       mqtt_sn_send_disconnect(/*mqc*/);
       if(mqc->mc->keepalive_timeout != NULL) {
         mqc->mc->keepalive_timeout(/*mqc*/);
@@ -309,10 +333,11 @@ PROCESS_THREAD(mqtt_sn_process, ev, data)
 inline static void send_packet(/*struct mqtt_sn_connection *mqc,*/ char* data, size_t len)
 {
   printf("send_packet (%d bytes) ",len);
+  stack_max_sp_print("send packet - 0x");
+  stack_dump("current SP: 0x");
 
   uip_udp_packet_send(g_conn, data, len);
   //uip_udp_packet_send(server_conn, "Reply", sizeof("Reply"));
-
   //simple_udp_send(&(mqc->sock), data, len);//these datatypes should all cast fine
 
   if (mqtt_sn_c.keep_alive>0 && mqtt_sn_c.stat == MQTTSN_CONNECTED)
@@ -322,7 +347,7 @@ inline static void send_packet(/*struct mqtt_sn_connection *mqc,*/ char* data, s
     //steady stream of pings to ensure that the connection stays alive.
     ctimer_restart(&(mqtt_sn_c.send_timer));
   }
-  printf("OK \n ");
+  printf("send packet OK \n ");
 }
 #endif
 
@@ -349,7 +374,11 @@ void mqtt_sn_send_connect(/*struct mqtt_sn_connection *mqc,*/ const char* client
     connect_packet.length = 0x06 + strlen(connect_packet.client_id);
 
     if (debug)
+    {
         printf("Sending CONNECT connect_packet...\n");
+        stack_max_sp_print("send CONNECT - 0x");
+        stack_dump("current SP: 0x");
+    }
 
     // Store the keep alive period
     if (keepalive) {
@@ -381,7 +410,11 @@ uint16_t mqtt_sn_send_register(/*struct mqtt_sn_connection *mqc,*/ const char* t
     rpacket.length = 0x06 + strlen(rpacket.topic_name);
 
     if (debug)
+    {
         printf("Sending REGISTER packet...\n");
+        stack_max_sp_print("send REGISTER packet - 0x");
+        stack_dump("current SP: 0x");
+    }
 
     send_packet(/*mqtt_sn_c, */(char*)&rpacket, rpacket.length);
     return rpacket.message_id;
@@ -399,7 +432,11 @@ uint16_t mqtt_sn_send_regack(/*struct mqtt_sn_connection *mqc, */int topic_id, i
     packet.length = 0x07;
 
     if (debug)
+    {
         printf("Sending REGACK packet...\n");
+        stack_max_sp_print("send REGACK packet - 0x");
+        stack_dump("current SP: 0x");
+    }
 
     send_packet(/*mqc, */(char*)&packet, packet.length);
     return packet.message_id;
@@ -446,6 +483,8 @@ uint16_t mqtt_sn_send_publish(/*struct mqtt_sn_connection *mqc,*/uint16_t topic_
 
     if (debug){
         printf("Sending PUBLISH packet...\n");
+        stack_max_sp_print("send PUBLISH packet - 0x");
+        stack_dump("current SP: 0x");
         if (ctimer_expired(&(mqtt_sn_c.receive_timer))){
             printf("receive timer has already expired...\n");
         }
@@ -476,6 +515,8 @@ uint16_t mqtt_sn_send_subscribe(/*struct mqtt_sn_connection *mqc, */const char* 
 
     if (debug){
         printf("Sending SUBSCRIBE packet...\n");
+        stack_max_sp_print("send SUBSCRIBE packet - 0x");
+        stack_dump("current SP: 0x");
     }
 
     send_packet(/*mqc, */(char*)&subscribe_packet, subscribe_packet.length);
@@ -506,10 +547,14 @@ void mqtt_sn_send_pingreq(/*struct mqtt_sn_connection *mqc*/)
     char packet[2];
 
     packet[0] = 2;
+
     packet[1] = MQTT_SN_TYPE_PINGREQ;
 
     if (debug) {
         printf("Sending ping...\n");
+        stack_max_sp_print("send PING packet - 0x");
+        stack_dump("current SP: 0x");
+
     }
 
     ctimer_restart(&(mqtt_sn_c.send_timer));
@@ -528,6 +573,8 @@ void mqtt_sn_send_pingresp(/*truct mqtt_sn_connection *mqc*/)
 
     if (debug) {
         printf("Sending ping response...\n");
+        stack_max_sp_print("send PINGRESP packet - 0x");
+        stack_dump("current SP: 0x");
     }
 
     return send_packet(/*mqc, */(char*)&packet, 2);
@@ -541,7 +588,11 @@ void mqtt_sn_send_disconnect(/*struct mqtt_sn_connection *mqc*/)
     packet.length = 0x02;
 
     if (debug)
+    {
         printf("Sending DISCONNECT packet...\n");
+        stack_max_sp_print("send DISCONNECT packet - 0x");
+        stack_dump("current SP: 0x");
+    }
 
     send_packet(/*mqtt_sn_c, */(char*)&packet, packet.length);
     mqtt_sn_c.connection_retries=0;
@@ -698,7 +749,7 @@ uint16_t mqtt_sn_recieve_suback(int sock)
     }
 
     if (packet->type != MQTT_SN_TYPE_SUBACK) {
-        fprintf(stderr, "Was expecting SUBACK packet but received: 0x%2.2x\n", packet->type);
+        fprintf(stderr, "Was expecting SUBACK packet but rlist_addeceived: 0x%2.2x\n", packet->type);
         exit(-1);
     }
 
@@ -794,6 +845,7 @@ void mqtt_sn_cleanup()
 #endif
 #if 1
 int mqtt_sn_request_returned(struct mqtt_sn_request *req) {
+  printf("mqtt_sn_request_returned: %d\n",req->state);
   if (req->state == MQTTSN_REQUEST_COMPLETE || req->state == MQTTSN_REQUEST_FAILED) { return 1;}
   else {return 0;}
 }
@@ -812,7 +864,8 @@ manage_response(/*struct mqtt_sn_connection *mqc, const uip_ipaddr_t *source_add
   uint8_t return_code = 0;
   uint16_t topic_id = 0;
   struct mqtt_sn_request *req;
-  printf("manage response\n");
+  stack_max_sp_print("manage response - 0x");
+  stack_dump("current SP: 0x");
   msg_type = buf[1];
   if (msg_type == MQTT_SN_TYPE_REGACK) {
     regack_packet_t incoming_regack;
@@ -853,8 +906,9 @@ static inline int
 manage_request(/*struct mqtt_sn_request *req, struct mqtt_sn_connection *mqc,*/
                const char* topic_name, uint8_t qos,clock_time_t time_out)
 {
-  PT_BEGIN(&(subreq.pt));
-  printf("manage request\n");
+  //PT_BEGIN(&(subreq.pt));
+  stack_max_sp_print("manage request - 0x");
+  stack_dump("current SP: 0x");
   list_add(mqtt_sn_c.requests,&subreq);
   ctimer_set(&(subreq.t), time_out, request_timer_callback, &subreq);
   subreq.state = MQTTSN_REQUEST_WAITING_ACK;
@@ -864,17 +918,18 @@ manage_request(/*struct mqtt_sn_request *req, struct mqtt_sn_connection *mqc,*/
   if (subreq.request_type == MQTTSN_SUBSCRIBE_REQUEST) {
     subreq.msg_id = mqtt_sn_send_subscribe(/*mqtt_sn_c,*/ topic_name, qos);
   }
-  PT_YIELD(&(subreq.pt)); /* Wait until timer expired or response received */
+  //PT_YIELD(&(subreq.pt)); /* Wait until timer expired or response received */
   ctimer_stop(&(subreq.t));
   process_post(PROCESS_BROADCAST,mqtt_sn_request_event,&subreq);
   list_remove(mqtt_sn_c.requests,&subreq);
-  PT_END(&(subreq.pt));
+  //PT_END(&(subreq.pt));
   return 1;
 }
 
-uint16_t mqtt_sn_register_try(const char* topic_name,clock_time_t time_out) {
-
-	printf("mqtt_sn_register_try\n");
+uint16_t mqtt_sn_register_try(const char* topic_name,clock_time_t time_out)
+{
+  stack_max_sp_print("mqtt_sn_register_try - 0x");
+  stack_dump("current SP: 0x");
 
   subreq.request_type = MQTTSN_REGISTER_REQUEST;
   manage_request(/*mqc,*/topic_name,0,time_out);
@@ -883,7 +938,10 @@ uint16_t mqtt_sn_register_try(const char* topic_name,clock_time_t time_out) {
 
 uint16_t mqtt_sn_subscribe_try(/*mqtt_sn_subscribe_request *req, struct mqtt_sn_connection *mqc,*/
                                const char* topic_name, uint8_t qos, clock_time_t time_out) {
-  printf("mqtt_sn_subscribe_try\n");
+
+  stack_max_sp_print("mqtt_sn_subscribe_try - 0x");
+  stack_dump("current SP: 0x");
+
   subreq.request_type = MQTTSN_SUBSCRIBE_REQUEST;
   manage_request(/*mqc,*/topic_name,qos,time_out);
   return subreq.msg_id;
