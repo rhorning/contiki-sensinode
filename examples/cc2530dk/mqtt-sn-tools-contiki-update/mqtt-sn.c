@@ -129,7 +129,6 @@ mqtt_sn_receiver(/*struct simple_udp_connection *sock, const uip_ipaddr_t *sende
   stack_dump("current SP: 0x");
   if (mqc->keep_alive > 0 && mqc->stat == MQTTSN_CONNECTED){
     ctimer_restart((&(mqc->receive_timer)));
-    printf("receive timer reset\n");
   }
 
    memset(buf, 0, MAX_PAYLOAD_LEN);
@@ -150,18 +149,6 @@ mqtt_sn_receiver(/*struct simple_udp_connection *sock, const uip_ipaddr_t *sende
   if (datalen >= 2)
   {
     msg_type = buf[1];
-
-    PRINTF("%u bytes from [", datalen);
-    PRINT6ADDR(&UIP_IP_BUF->srcipaddr);
-    PRINTF("]\n");
-
-    for(i = 0;i<datalen;i++)
-    {
-    	PRINTF("0x%x ", buf[i]);
-    }
-
-    PRINTF("\n");
-
     switch(msg_type) {
 //        case MQTT_SN_TYPE_ADVERTISE:
 //        case MQTT_SN_TYPE_SEARCHGW:
@@ -343,14 +330,12 @@ PROCESS_THREAD(mqtt_sn_process, ev, data)
 #if 1
 inline static void send_packet(/*struct mqtt_sn_connection *mqc,*/ char* data, size_t len)
 {
-  printf("send_packet (%d bytes) ",len);
   stack_max_sp_print("send packet - 0x");
   stack_dump("current SP: 0x");
 
   uip_udp_packet_send(g_conn, data, len);
   //uip_udp_packet_send(server_conn, "Reply", sizeof("Reply"));
   //simple_udp_send(&(mqc->sock), data, len);//these datatypes should all cast fine
-
   if (mqtt_sn_c.keep_alive>0 && mqtt_sn_c.stat == MQTTSN_CONNECTED)
   {
     //normally we would use this to make sure that we are always sending data to keep the connection alive
@@ -358,7 +343,6 @@ inline static void send_packet(/*struct mqtt_sn_connection *mqc,*/ char* data, s
     //steady stream of pings to ensure that the connection stays alive.
     ctimer_restart(&(mqtt_sn_c.send_timer));
   }
-  printf("send packet OK \n ");
 }
 #endif
 
@@ -386,7 +370,6 @@ void mqtt_sn_send_connect(/*struct mqtt_sn_connection *mqc,*/ const char* client
 
     if (debug)
     {
-        printf("Sending CONNECT connect_packet...\n");
         stack_max_sp_print("send CONNECT - 0x");
         stack_dump("current SP: 0x");
     }
@@ -422,7 +405,6 @@ uint16_t mqtt_sn_send_register(/*struct mqtt_sn_connection *mqc,*/ const char* t
 
     if (debug)
     {
-        printf("Sending REGISTER packet...\n");
         stack_max_sp_print("send REGISTER packet - 0x");
         stack_dump("current SP: 0x");
     }
@@ -444,7 +426,6 @@ uint16_t mqtt_sn_send_regack(/*struct mqtt_sn_connection *mqc, */int topic_id, i
 
     if (debug)
     {
-        printf("Sending REGACK packet...\n");
         stack_max_sp_print("send REGACK packet - 0x");
         stack_dump("current SP: 0x");
     }
@@ -493,7 +474,6 @@ uint16_t mqtt_sn_send_publish(/*struct mqtt_sn_connection *mqc,*/uint16_t topic_
     ppacket.length = 0x07 + data_len;
 
     if (debug){
-        printf("Sending PUBLISH packet...\n");
         stack_max_sp_print("send PUBLISH packet - 0x");
         stack_dump("current SP: 0x");
         if (ctimer_expired(&(mqtt_sn_c.receive_timer))){
@@ -525,7 +505,6 @@ uint16_t mqtt_sn_send_subscribe(/*struct mqtt_sn_connection *mqc, */const char* 
     subscribe_packet.length = 0x05 + topic_name_len;
 
     if (debug){
-        printf("Sending SUBSCRIBE packet...\n");
         stack_max_sp_print("send SUBSCRIBE packet - 0x");
         stack_dump("current SP: 0x");
     }
@@ -562,7 +541,6 @@ void mqtt_sn_send_pingreq(/*struct mqtt_sn_connection *mqc*/)
     packet[1] = MQTT_SN_TYPE_PINGREQ;
 
     if (debug) {
-        printf("Sending ping...\n");
         stack_max_sp_print("send PING packet - 0x");
         stack_dump("current SP: 0x");
 
@@ -583,7 +561,6 @@ void mqtt_sn_send_pingresp(/*truct mqtt_sn_connection *mqc*/)
     packet[1] = MQTT_SN_TYPE_PINGRESP;
 
     if (debug) {
-        printf("Sending ping response...\n");
         stack_max_sp_print("send PINGRESP packet - 0x");
         stack_dump("current SP: 0x");
     }
@@ -600,7 +577,6 @@ void mqtt_sn_send_disconnect(/*struct mqtt_sn_connection *mqc*/)
 
     if (debug)
     {
-        printf("Sending DISCONNECT packet...\n");
         stack_max_sp_print("send DISCONNECT packet - 0x");
         stack_dump("current SP: 0x");
     }
@@ -856,7 +832,6 @@ void mqtt_sn_cleanup()
 #endif
 #if 1
 int mqtt_sn_request_returned(int8_t req_idx) {
-  printf("mqtt_sn_request_returned: %d\n",requests[req_idx].state);
   if (requests[req_idx].state == MQTTSN_REQUEST_COMPLETE || requests[req_idx].state == MQTTSN_REQUEST_FAILED) { return 1;}
   else {return 0;}
 }

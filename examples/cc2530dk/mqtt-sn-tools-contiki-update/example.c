@@ -194,7 +194,6 @@ PROCESS_THREAD(publish_process, ev, data)
 	stack_max_sp_print("register try - 0x");
 	stack_dump("current SP: 0x");
     reg_topic_msg_id = mqtt_sn_register_try(pub_topic,REPLY_TIMEOUT);
-	printf("Waiting for register request returned\n");
     PROCESS_WAIT_EVENT_UNTIL(mqtt_sn_request_returned(REGISTER_IDX));
     if (mqtt_sn_request_success(REGISTER_IDX)) {
       registration_tries = 4;
@@ -219,8 +218,9 @@ PROCESS_THREAD(publish_process, ev, data)
 		  PROCESS_WAIT_EVENT();
 
 		  if(ev == PROCESS_EVENT_TIMER) {
-			  printf("publishing \n ");
+
 			  sprintf(buf, "Message %d", message_number);
+			  printf("publishing '%s' to topic '%s' \n ", buf, pub_topic);
 			  message_number++;
 			  buf_len = strlen(buf);
 			  stack_max_sp_print("send publish - 0x");
@@ -302,7 +302,7 @@ PROCESS_THREAD(example_mqttsn_process, ev, data)
   //uip_ip6addr(&broker_addr, 0x2001, 0x0db8, 1, 0xffff, 0, 0, 0xc0a8, 0xd480);//192.168.212.128 with tayga
   //uip_ip6addr(&broker_addr, 0xaaaa, 0, 2, 0xeeee, 0, 0, 0xc0a8, 0xd480);//192.168.212.128 with tayga
   //uip_ip6addr(&broker_addr, 0xaaaa, 0, 2, 0xeeee, 0, 0, 0xac10, 0xdc01);//172.16.220.1 with tayga
-  uip_ip6addr(&broker_addr, 0xbbbb, 0, 0, 0, 0x7940, 0x7468, 0xb214, 0x82a1);//172.16.220.128 with tayga
+  uip_ip6addr(&broker_addr, 0xbbbb, 0, 0, 0, 0xa914, 0x34d8, 0xb169, 0x6ae9);//172.16.220.128 with tayga
   //mqtt_sn_create_socket(&mqtt_sn_c,UDP_PORT, &broker_addr, UDP_PORT);
 
   //simple_udp_register(&(mqc->sock), local_port, remote_addr, remote_port, mqtt_sn_receiver);
@@ -341,7 +341,6 @@ PROCESS_THREAD(example_mqttsn_process, ev, data)
   stack_dump("current SP: 0x");
 
   /*Request a connection and wait for connack*/
-  printf("requesting connection \n ");
   connection_timeout_event = process_alloc_event();
   ctimer_set( &connection_timer, REPLY_TIMEOUT, connection_timer_callback, NULL);
   mqtt_sn_send_connect(/*&mqtt_sn_c,*/mqtt_client_id,mqtt_keep_alive);
@@ -361,8 +360,6 @@ PROCESS_THREAD(example_mqttsn_process, ev, data)
 		  connection_state = MQTTSN_WAITING_CONNACK;
 		  etimer_restart(&et);
 	  } else if(ev == tcpip_event) {
-		  //tcpip_handler();
-		  printf("packet arrival...\n");
 		  mqtt_sn_receiver();
 	  } else  if (ev == mqttsn_connack_event) {
 		  //if success
@@ -385,7 +382,6 @@ PROCESS_THREAD(example_mqttsn_process, ev, data)
 		  if(ev == tcpip_event)
 		  {
 			  //tcpip_handler();
-			  printf("packet arrival v2...\n");
 			  mqtt_sn_receiver();
 		  }
 		  else if (ev == PROCESS_EVENT_TIMER)
