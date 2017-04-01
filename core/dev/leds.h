@@ -55,12 +55,12 @@ void leds_init(void);
 void leds_blink(void);
 
 #ifndef LEDS_GREEN
-#define LEDS_GREEN  1
+#define LEDS_GREEN  1	// LED3
 #endif /* LEDS_GREEN */
-#ifndef LEDS_YELLOW
+#ifndef LEDS_YELLOW		// LED1
 #define LEDS_YELLOW  2
 #endif /* LEDS_YELLOW */
-#ifndef LEDS_RED
+#ifndef LEDS_RED		// LED2
 #define LEDS_RED  4
 #endif /* LEDS_RED */
 #ifndef LEDS_BLUE
