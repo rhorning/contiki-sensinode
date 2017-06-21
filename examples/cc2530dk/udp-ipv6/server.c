@@ -174,11 +174,11 @@ PROCESS_THREAD(udp_server_process, ev, data)
 
 
   server_conn = udp_new(NULL, UIP_HTONS(0), NULL);
-  udp_bind(server_conn, UIP_HTONS(3000));
+  udp_bind(server_conn, UIP_HTONS(8802));
 
   print_local_addresses();
 
-  PRINTF("Listen port: 3000, TTL=%u\n", server_conn->ttl);
+  PRINTF("Listen port: 8802, TTL=%u\n", server_conn->ttl);
 
   while(1) {
     PROCESS_YIELD();

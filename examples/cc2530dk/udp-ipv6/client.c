@@ -45,10 +45,10 @@
 static char buf[MAX_PAYLOAD_LEN];
 
 /* Our destinations and udp conns. One link-local and one global */
-#define LOCAL_CONN_PORT 3000
+#define LOCAL_CONN_PORT 8802
 static struct uip_udp_conn *l_conn;
 #if UIP_CONF_ROUTER
-#define GLOBAL_CONN_PORT 3002
+#define GLOBAL_CONN_PORT 8802
 static struct uip_udp_conn *g_conn;
 #endif
 
@@ -130,7 +130,7 @@ print_local_addresses(void)
   }
 }
 
-PROCESS_THREAD(l, ev, data)
+PROCESS_THREAD(udp_client_process, ev, data)
 {
   static struct etimer et;
   uip_ipaddr_t ipaddr;

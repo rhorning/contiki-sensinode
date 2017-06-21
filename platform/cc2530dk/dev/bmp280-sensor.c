@@ -42,6 +42,9 @@
 #include "dev/hal_i2c.h"
 #include "dev/bmp280.h"
 #include "debug.h"
+#include <stdio.h>
+
+#define PRINTF(...) printf(__VA_ARGS__)
 
 #if BMP_SENSOR_ON
 
@@ -192,18 +195,19 @@ value(int type)
   int16_t reading;
   uint8_t buf[3];
   static int32_t lastReadPressure = 0xFFFFFFFF;
-
+  //PRINTF("\nOpa Cheguei 0!");
   switch(type)
   {
 	  case BMP_SENSOR_TYPE_TEMP:
 	  {
-		  HalI2CReceive(BMP280_I2C_ADDRESS2,BMP280_TEMPERATURE_MSB_REG,buf,3);
+		  //PRINTF("\nOpa Cheguei 1!");
+		  HalI2CReceive(BMP280_I2C_ADDRESS1,BMP280_TEMPERATURE_MSB_REG,buf,3);
 		  return (int16_t)bmp280_compensate_temperature_int32(((int32_t)buf[0])<<12 | ((int32_t)buf[1])<<4 | ((int32_t)buf[0])>>4);
 		  break;
 	  }
 	  case BMP_SENSOR_TYPE_PRESS_hPa:
 	  {
-		  HalI2CReceive(BMP280_I2C_ADDRESS2,BMP280_PRESSURE_MSB_REG,buf,3);
+		  HalI2CReceive(BMP280_I2C_ADDRESS1,BMP280_PRESSURE_MSB_REG,buf,3);
 		  lastReadPressure = (bmp280_compensate_pressure_int32(((int32_t)buf[0])<<12 | ((int32_t)buf[1])<<4 | ((int32_t)buf[0])>>4));
 		  return (int)(lastReadPressure/100);
 		  break;
@@ -251,7 +255,7 @@ void bmp280_get_calib_param(void)
 {
 
 
-		HalI2CReceive(BMP280_I2C_ADDRESS2,BMP280_TEMPERATURE_CALIB_DIG_T1_LSB_REG,a_data_u8,BMP280_PRESSURE_TEMPERATURE_CALIB_DATA_LENGTH);
+		HalI2CReceive(BMP280_I2C_ADDRESS1,BMP280_TEMPERATURE_CALIB_DIG_T1_LSB_REG,a_data_u8,BMP280_PRESSURE_TEMPERATURE_CALIB_DATA_LENGTH);
 		/* read calibration values*/
 		bmp280cal.dig_T1 = (u16)((((u16)((u8)a_data_u8[
 					BMP280_TEMPERATURE_CALIB_DIG_T1_MSB]))
@@ -331,10 +335,10 @@ configure(int type, int value)
 			P1SEL &= ~SDO_MASK;
 			P1DIR |= SDO_MASK;
 			P1_7 |= SDO_MASK;
-		    HalI2CReceive(BMP280_I2C_ADDRESS2,BMP280_CHIP_ID_REG,&bmp280ID, 1);
+		    HalI2CReceive(BMP280_I2C_ADDRESS1,BMP280_CHIP_ID_REG,&bmp280ID, 1);
 		    if(bmp280ID!=BMP280_CHIP_ID3)
 		    	return 0;
-		    HalI2CSend(BMP280_I2C_ADDRESS2,bmp280TempPressConfig,2);
+		    HalI2CSend(BMP280_I2C_ADDRESS1,bmp280TempPressConfig,2);
 		    bmp280_get_calib_param();
 			break;
 		}

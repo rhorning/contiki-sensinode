@@ -58,6 +58,7 @@
 #if BMP_SENSOR_ON
 extern const struct sensors_sensor bmp_sensor;
 #define   BMP_SENSOR_ACTIVATE() bmp_sensor.configure(SENSORS_ACTIVE, 1)
+#define   BMP_SENSOR_INIT() bmp_sensor.configure(SENSORS_HW_INIT, 1)
 #else
 #define   BMP_SENSOR_ACTIVATE()
 #endif /* BMP_SENSOR_ON */

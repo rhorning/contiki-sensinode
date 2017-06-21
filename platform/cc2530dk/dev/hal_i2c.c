@@ -58,7 +58,7 @@
 #define HAL_I2C_RETRY_CNT  3
 #endif
 
-// the default cofiguration below uses P1.6 for SDA and P0.0 for SCL.
+// the default cofiguration below uses P1.6 for SDA and P0.0(MUDOU PARA P1.5) for SCL.
 // change these as needed.
 #ifndef OCM_CLK_PORT
   #define OCM_CLK_PORT  1
