@@ -54,6 +54,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "dev/bmp280-sensor.h"
+
 #define UDP_PORT 1883
 
 #define REQUEST_RETRIES 4
@@ -79,6 +81,7 @@ static uint8_t retain = FALSE;
 static char device_id[17];
 static clock_time_t send_interval;
 //uint8_t debug = FALSE;
+static int temp =0;
 
 static enum mqttsn_connection_status connection_state = MQTTSN_DISCONNECTED;
 
@@ -186,8 +189,10 @@ PROCESS_THREAD(publish_process, ev, data)
 
   PROCESS_BEGIN();
   send_interval = DEFAULT_SEND_INTERVAL;
-  memcpy(pub_topic,device_id,16);
-  printf("registering topic\n");
+  //memcpy(pub_topic,device_id,16);
+  strcpy(pub_topic,mqtt_client_id);
+  strcat(pub_topic,"/temperature");
+  printf("Registering on MQTT topic: %s\n",pub_topic);
   registration_tries =0;
   while (registration_tries < REQUEST_RETRIES)
   {
@@ -218,8 +223,8 @@ PROCESS_THREAD(publish_process, ev, data)
 		  PROCESS_WAIT_EVENT();
 
 		  if(ev == PROCESS_EVENT_TIMER) {
-
-			  sprintf(buf, "Message %d", message_number);
+			  temp = (int)bmp_sensor.value(BMP_SENSOR_TYPE_TEMP);
+			  sprintf(buf, "Message %d", temp);
 			  printf("publishing '%s' to topic '%s' \n ", buf, pub_topic);
 			  message_number++;
 			  buf_len = strlen(buf);
@@ -298,21 +303,17 @@ PROCESS_THREAD(example_mqttsn_process, ev, data)
    mqttsn_connack_event = process_alloc_event();
 
   mqtt_sn_set_debug(1);
-  //uip_ip6addr(&broker_addr, 0xaaaa, 0, 0, 0, 0, 0, 0, 1);
-  //uip_ip6addr(&broker_addr, 0x2001, 0x0db8, 1, 0xffff, 0, 0, 0xc0a8, 0xd480);//192.168.212.128 with tayga
-  //uip_ip6addr(&broker_addr, 0xaaaa, 0, 2, 0xeeee, 0, 0, 0xc0a8, 0xd480);//192.168.212.128 with tayga
-  //uip_ip6addr(&broker_addr, 0xaaaa, 0, 2, 0xeeee, 0, 0, 0xac10, 0xdc01);//172.16.220.1 with tayga
-  uip_ip6addr(&broker_addr, 0xbbbb, 0, 0, 0, 0xa914, 0x34d8, 0xb169, 0x6ae9);//172.16.220.128 with tayga
+  uip_ip6addr(&broker_addr, 0xbbbb, 0, 0, 0, 0x021e, 0xc9ff, 0xfe25, 0xa2fc); //192.168.0.32 with tayga
+  //uip_ip6addr(&broker_addr, 0xaaaa, 0, 0, 0, 0x0212, 0x4b00, 0x0b22, 0xdc82); //192.168.0.32 with tayga
   //mqtt_sn_create_socket(&mqtt_sn_c,UDP_PORT, &broker_addr, UDP_PORT);
-
   //simple_udp_register(&(mqc->sock), local_port, remote_addr, remote_port, mqtt_sn_receiver);
-  //{
   g_conn = udp_new(&broker_addr, UIP_HTONS(UDP_PORT), NULL);
+
   if(!g_conn) {
     PRINTF("udp_new g_conn error.\n");
   }
   udp_bind(g_conn, UIP_HTONS(UDP_PORT));
-  //}
+
   mqtt_sn_c.stat = MQTTSN_DISCONNECTED;
   mqtt_sn_c.keep_alive=0;
   mqtt_sn_c.next_message_id = 1;
@@ -346,7 +347,7 @@ PROCESS_THREAD(example_mqttsn_process, ev, data)
   mqtt_sn_send_connect(/*&mqtt_sn_c,*/mqtt_client_id,mqtt_keep_alive);
   connection_state = MQTTSN_WAITING_CONNACK;
 
-  etimer_set(&et, 3 * CLOCK_SECOND);
+  etimer_set(&et, 5 * CLOCK_SECOND);
 
   while(loop) {
 	  stack_max_sp_print("connack wait - 0x");
@@ -355,6 +356,8 @@ PROCESS_THREAD(example_mqttsn_process, ev, data)
 	  if(ev == PROCESS_EVENT_TIMER) {
 		  connection_state = MQTTSN_CONNECTION_FAILED;
 		  connection_retries++;
+		  temp = (int)bmp_sensor.value(BMP_SENSOR_TYPE_TEMP);
+		  PRINTF("\nTemperatura: %i\n", temp);
 		  printf("connection timeout\n");
 		  mqtt_sn_send_connect(/*&mqtt_sn_c,*/mqtt_client_id,mqtt_keep_alive);
 		  connection_state = MQTTSN_WAITING_CONNACK;
@@ -386,7 +389,7 @@ PROCESS_THREAD(example_mqttsn_process, ev, data)
 		  }
 		  else if (ev == PROCESS_EVENT_TIMER)
 		  {
-			  if(phases==0)
+			  /*if(phases==0)
 			  {
 				  printf("starting subscription process\n");
 				  stack_max_sp_print("subscribe - 0x");
@@ -395,14 +398,14 @@ PROCESS_THREAD(example_mqttsn_process, ev, data)
 				  etimer_set(&et, 3 * CLOCK_SECOND);
 			  }
 			  else if(phases==1)
-			  {
+			  {*/
 				  printf("starting publish process\n");
 				  stack_max_sp_print("publish - 0x");
 				  stack_dump("current SP: 0x");
 				  process_start(&publish_process, 0);
-				  etimer_set(&et, 3 * CLOCK_SECOND);
-			  }
-			  phases++;
+				  etimer_set(&et, 15 * CLOCK_SECOND);
+			 // }
+			 // phases++;
 		  }
 	  }
   }

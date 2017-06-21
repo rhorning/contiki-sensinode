@@ -8,8 +8,9 @@ STACK_CONF_DEBUGGING=1
 
 PROJECT_SOURCEFILES += mqtt-sn.c
 
-CONTIKI_PROJECT = atividade6 atividade6cli#client server atividade4o servidorat4 ativ4
+CONTIKI_PROJECT = example
 
+APPS += mqtts
 
 all: example
 
