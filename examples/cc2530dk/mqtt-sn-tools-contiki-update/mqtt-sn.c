@@ -87,6 +87,8 @@ static process_event_t disconnect_event;
 static process_event_t receive_timeout_event;
 static process_event_t send_timeout_event;
 
+int loopPublish = 1;
+
 #define REQUEST_NUMBER (3)
 
 mqtt_sn_request requests[REQUEST_NUMBER];
@@ -156,6 +158,7 @@ mqtt_sn_receiver(/*struct simple_udp_connection *sock, const uip_ipaddr_t *sende
 //        case MQTT_SN_TYPE_CONNECT:
         case MQTT_SN_TYPE_CONNACK:
           {
+        	loopPublish = 1;
             memcpy(&(mqc->last_connack),buf,sizeof(connack_packet_t));
             process_post(&mqtt_sn_process, connack_event, mqc);
             if(mqc->mc->connack_recv != NULL) {
@@ -290,6 +293,7 @@ PROCESS_THREAD(mqtt_sn_process, ev, data)
     mqc = (struct mqtt_sn_connection *)data;
     if(ev == connack_event) {
       //if connection was successful, set and or start the ctimers.
+      loopPublish = 1;
       if (mqc->last_connack.return_code == 0x00 && mqc->stat == MQTTSN_WAITING_CONNACK){
         mqc->stat = MQTTSN_CONNECTED;
         if (mqc->keep_alive > 0){
@@ -308,7 +312,6 @@ PROCESS_THREAD(mqtt_sn_process, ev, data)
     }
     else if (ev == receive_timeout_event){
       //if last receive has expired we need to stop and disconnect
-
 
       stack_max_sp_print("receive timeout event - 0x");
       stack_dump("current SP: 0x");
@@ -473,13 +476,12 @@ uint16_t mqtt_sn_send_publish(/*struct mqtt_sn_connection *mqc,*/uint16_t topic_
     strncpy(ppacket.data, data, sizeof(ppacket.data));
     ppacket.length = 0x07 + data_len;
 
-    if (debug){
-        stack_max_sp_print("send PUBLISH packet - 0x");
-        stack_dump("current SP: 0x");
-        if (ctimer_expired(&(mqtt_sn_c.receive_timer))){
-            printf("receive timer has already expired...\n");
-        }
-    }
+	stack_max_sp_print("send PUBLISH packet - 0x");
+	stack_dump("current SP: 0x");
+	if (ctimer_expired(&(mqtt_sn_c.receive_timer))){
+		loopPublish = 0;
+		printf("receive timer has already expired...\n");
+	}
 
     send_packet(/*mqc, */(char*)&ppacket, ppacket.length);
     return ppacket.message_id;

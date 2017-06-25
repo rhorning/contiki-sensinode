@@ -360,7 +360,7 @@ inline int8_t get_request();
 
 #endif // 1
 
-
+extern int loopPublish;
 
 
 

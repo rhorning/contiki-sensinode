@@ -65,7 +65,7 @@
 extern mqtt_sn_request* requests;
 
 struct mqtt_sn_connection mqtt_sn_c;
-struct uip_udp_conn *g_conn;
+struct uip_udp_conn *g_conn, *bind_conn;
 
 static char mqtt_client_id[]="sensor";
 static char ctrl_topic[] = "0000000000000000/ctrl";//of form "0011223344556677/ctrl" it is null terminated, and is 21 charactes
@@ -81,7 +81,8 @@ static uint8_t retain = FALSE;
 static char device_id[17];
 static clock_time_t send_interval;
 //uint8_t debug = FALSE;
-static int temp =0;
+static int temp = 0;
+static int loopPub = 1;
 
 static enum mqttsn_connection_status connection_state = MQTTSN_DISCONNECTED;
 
@@ -219,12 +220,13 @@ PROCESS_THREAD(publish_process, ev, data)
   {
 	  //start topic publishing to topic at regular intervals
 	  etimer_set(&send_timer, send_interval);
-	  while(1) {
+	  while(loopPub) {
 		  PROCESS_WAIT_EVENT();
 
 		  if(ev == PROCESS_EVENT_TIMER) {
-			  temp = (int)bmp_sensor.value(BMP_SENSOR_TYPE_TEMP);
-			  sprintf(buf, "Message %d", temp);
+			  temp = bmp_sensor.value(BMP_SENSOR_TYPE_TEMP);
+			  printf("1:%i\n", temp);
+			  sprintf(buf, "%d", temp);
 			  printf("publishing '%s' to topic '%s' \n ", buf, pub_topic);
 			  message_number++;
 			  buf_len = strlen(buf);
@@ -233,6 +235,7 @@ PROCESS_THREAD(publish_process, ev, data)
 			  mqtt_sn_send_publish(publisher_topic_id,MQTT_SN_TOPIC_TYPE_NORMAL,buf, buf_len,qos,retain);
 			  etimer_set(&send_timer, send_interval);
 		  }
+		  loopPub = loopPublish;
 	  }
   }
   else
@@ -288,12 +291,11 @@ static void connection_timer_callback(void *mqc)
 PROCESS_THREAD(example_mqttsn_process, ev, data)
 {
   static struct etimer periodic_timer;
-  static uip_ipaddr_t broker_addr;
+  static uip_ipaddr_t broker_addr, bind6;
   static uint8_t connection_retries = 0;
   static struct etimer et;
   static uint8_t stack;
   static uint8_t loop=1;
-  static uint8_t phases=0;
 
   PROCESS_BEGIN();
 
@@ -304,15 +306,21 @@ PROCESS_THREAD(example_mqttsn_process, ev, data)
 
   mqtt_sn_set_debug(1);
   uip_ip6addr(&broker_addr, 0xbbbb, 0, 0, 0, 0x021e, 0xc9ff, 0xfe25, 0xa2fc); //192.168.0.32 with tayga
-  //uip_ip6addr(&broker_addr, 0xaaaa, 0, 0, 0, 0x0212, 0x4b00, 0x0b22, 0xdc82); //192.168.0.32 with tayga
+  uip_ip6addr(&bind6, 0, 0, 0, 0, 0, 0, 0, 0); //192.168.0.32 with tayga
   //mqtt_sn_create_socket(&mqtt_sn_c,UDP_PORT, &broker_addr, UDP_PORT);
   //simple_udp_register(&(mqc->sock), local_port, remote_addr, remote_port, mqtt_sn_receiver);
+
   g_conn = udp_new(&broker_addr, UIP_HTONS(UDP_PORT), NULL);
+  bind_conn = udp_new(&bind6, UIP_HTONS(UDP_PORT), NULL);
 
   if(!g_conn) {
     PRINTF("udp_new g_conn error.\n");
   }
+  if(!bind_conn) {
+      PRINTF("udp_new bind_conn error.\n");
+   }
   udp_bind(g_conn, UIP_HTONS(UDP_PORT));
+  udp_bind(bind_conn, UIP_HTONS(UDP_PORT));
 
   mqtt_sn_c.stat = MQTTSN_DISCONNECTED;
   mqtt_sn_c.keep_alive=0;
@@ -340,78 +348,66 @@ PROCESS_THREAD(example_mqttsn_process, ev, data)
 
   stack_max_sp_print("connection request - 0x");
   stack_dump("current SP: 0x");
-
-  /*Request a connection and wait for connack*/
   connection_timeout_event = process_alloc_event();
   ctimer_set( &connection_timer, REPLY_TIMEOUT, connection_timer_callback, NULL);
-  mqtt_sn_send_connect(/*&mqtt_sn_c,*/mqtt_client_id,mqtt_keep_alive);
-  connection_state = MQTTSN_WAITING_CONNACK;
-
-  etimer_set(&et, 5 * CLOCK_SECOND);
-
-  while(loop) {
-	  stack_max_sp_print("connack wait - 0x");
-	  stack_dump("current SP: 0x");
-	  PROCESS_WAIT_EVENT();
-	  if(ev == PROCESS_EVENT_TIMER) {
-		  connection_state = MQTTSN_CONNECTION_FAILED;
-		  connection_retries++;
-		  temp = (int)bmp_sensor.value(BMP_SENSOR_TYPE_TEMP);
-		  PRINTF("\nTemperatura: %i\n", temp);
-		  printf("connection timeout\n");
-		  mqtt_sn_send_connect(/*&mqtt_sn_c,*/mqtt_client_id,mqtt_keep_alive);
-		  connection_state = MQTTSN_WAITING_CONNACK;
-		  etimer_restart(&et);
-	  } else if(ev == tcpip_event) {
-		  mqtt_sn_receiver();
-	  } else  if (ev == mqttsn_connack_event) {
-		  //if success
-		  printf("connection acked\n");
-		  stack_max_sp_print("subscribe thread - 0x");
+while(1){
+	  /*Request a connection and wait for connack*/
+	  mqtt_sn_send_connect(/*&mqtt_sn_c,*/mqtt_client_id,mqtt_keep_alive);
+	  connection_state = MQTTSN_WAITING_CONNACK;
+	  printf("(Re)started connection request with broker");
+	  etimer_set(&et, 5 * CLOCK_SECOND);
+	  loop=1;
+	  while(loop) {
+		  stack_max_sp_print("connack wait - 0x");
 		  stack_dump("current SP: 0x");
-		  ctimer_stop(&connection_timer);
-		  connection_state = MQTTSN_CONNECTED;
-		  loop = 0;
-	  }
-  }
-  ctimer_stop(&connection_timer);
-
-  etimer_set(&et, 3 * CLOCK_SECOND);
-  if (connection_state == MQTTSN_CONNECTED)
-  {
-	  while(1)
-	  {
 		  PROCESS_WAIT_EVENT();
-		  if(ev == tcpip_event)
-		  {
-			  //tcpip_handler();
+		  if(ev == PROCESS_EVENT_TIMER) {
+			  connection_state = MQTTSN_CONNECTION_FAILED;
+			  connection_retries++;
+			  printf("connection timeout\n");
+			  mqtt_sn_send_connect(/*&mqtt_sn_c,*/mqtt_client_id,mqtt_keep_alive);
+			  connection_state = MQTTSN_WAITING_CONNACK;
+			  etimer_restart(&et);
+		  } else if(ev == tcpip_event) {
 			  mqtt_sn_receiver();
+		  } else  if (ev == mqttsn_connack_event) {
+			  //if success
+			  printf("connection acked\n");
+			  stack_max_sp_print("subscribe thread - 0x");
+			  stack_dump("current SP: 0x");
+			  ctimer_stop(&connection_timer);
+			  connection_state = MQTTSN_CONNECTED;
+			  loop = 0;
 		  }
-		  else if (ev == PROCESS_EVENT_TIMER)
+	  }
+	  ctimer_stop(&connection_timer);
+
+	  etimer_set(&et, 3 * CLOCK_SECOND);
+	  if (connection_state == MQTTSN_CONNECTED)
+	  {
+		  loopPub = 1;
+		  while(loopPub)
 		  {
-			  /*if(phases==0)
+			  PROCESS_WAIT_EVENT();
+			  if(ev == tcpip_event)
 			  {
-				  printf("starting subscription process\n");
-				  stack_max_sp_print("subscribe - 0x");
-				  stack_dump("current SP: 0x");
-				  process_start(&ctrl_subscription_process, 0);
-				  etimer_set(&et, 3 * CLOCK_SECOND);
+				  mqtt_sn_receiver();
 			  }
-			  else if(phases==1)
-			  {*/
+			  else if (ev == PROCESS_EVENT_TIMER)
+			  {
 				  printf("starting publish process\n");
 				  stack_max_sp_print("publish - 0x");
 				  stack_dump("current SP: 0x");
 				  process_start(&publish_process, 0);
 				  etimer_set(&et, 15 * CLOCK_SECOND);
-			 // }
-			 // phases++;
+			  }
+			  loopPub = loopPublish;
 		  }
 	  }
-  }
-  else
-  {
-	  printf("unable to connect\n");
+	  else
+	  {
+		  printf("unable to connect\n");
+	  }
   }
   PROCESS_END();
 }
